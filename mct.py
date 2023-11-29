@@ -8,11 +8,6 @@ from utils import VATLoss
 vat_loss = VATLoss()
 
 def MCT(U_t, U_s, L_t, L_s, Y_t, Y_s, teacher, student, teacher_optimizer, student_optimizer, loss=torch.nn.CrossEntropyLoss(), supervised=False, approx=False, previous_params=True):
-    # Ran and Shaw are the dragons from avatar
-    # Hammer and Spike are the dragons from the video games
-    # Genji and Hanzo
-
-    #TODO: different views for the student and the teacher
     device = int(os.environ["RANK"]) % torch.cuda.device_count()
     
     SPL_t = teacher(U_t) # compute the soft pseudo labels (teacher)
@@ -74,9 +69,7 @@ def MCT(U_t, U_s, L_t, L_s, Y_t, Y_s, teacher, student, teacher_optimizer, stude
     # compute the gradient of the student parameters with respect to the real labels
     student_final_output = student(L_s)
     student_loss_final = loss(student_final_output, Y_s)
-    if approx:
-        student_loss_final_l = student_loss_final.detach().clone()
-    
+
     if not approx:
         student_loss_final.backward()
         h_t = sum([(param.grad.data.detach() * grads).sum() for param, grads in zip(student.parameters(),  grads1_s)])
@@ -86,9 +79,7 @@ def MCT(U_t, U_s, L_t, L_s, Y_t, Y_s, teacher, student, teacher_optimizer, stude
     # compute the gradient of the student parameters with respect to the real labels
     teacher_final_output = teacher(L_t)
     teacher_loss_final = loss(teacher_final_output, Y_t)
-    if approx:
-        teacher_loss_final_l = teacher_loss_final.detach().clone()
-    
+
     if not approx:
         teacher_loss_final.backward()
         h_s = sum([(param.grad.data.detach() * grads).sum() for param, grads in zip(teacher.parameters(),  grads1_t)])
