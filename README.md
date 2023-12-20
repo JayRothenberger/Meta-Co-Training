@@ -1,5 +1,9 @@
 # Meta Co Training
 
+ 	
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/meta-co-training-two-views-are-better-than/semi-supervised-image-classification-on-2)](https://paperswithcode.com/sota/semi-supervised-image-classification-on-2?p=meta-co-training-two-views-are-better-than)
+[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/meta-co-training-two-views-are-better-than/semi-supervised-image-classification-on-1)](https://paperswithcode.com/sota/semi-supervised-image-classification-on-1?p=meta-co-training-two-views-are-better-than)
+
 requirements: timm, pytorch, torchvision, wandb, numpy, 
 
 To reproduce:
