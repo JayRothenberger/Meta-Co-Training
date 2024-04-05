@@ -30,4 +30,4 @@ srun torchrun \
 --rdzv_id $RANDOM \
 --rdzv_backend c10d \
 --rdzv_endpoint "127.0.0.1:64425" \ # local machine
-MCT_bench.py
+MCT_experiment.py
