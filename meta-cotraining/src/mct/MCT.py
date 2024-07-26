@@ -1,18 +1,25 @@
-import numpy as np
-import torch
-import torchvision
-import os
-import time
-from mct.utils import *
-from torch.optim import Adam
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.utils.data import DataLoader, DistributedSampler
-from torch.cuda.amp import GradScaler
-import gc
-import wandb
 import pickle
 import time
 import warnings
+import gc
+import os
+import time
+import random
+from copy import deepcopy as copy
+
+import wandb
+import numpy as np
+from tqdm import tqdm
+import torch
+import torch.distributed as dist
+from torch.optim import Adam
+from torch import nn
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.data import DataLoader, DistributedSampler
+from torch.cuda.amp import GradScaler
+
+from mct.utils import accuracy, EarlyStopper, RepeatLoader
+
 
 def epoch_model_accuracy(loader, model):
     model.eval()
@@ -149,7 +156,7 @@ class MetaCoTrainingModel(torch.nn.Module):
 
         try:
             os.mkdir('./MCT_weights')
-        except:
+        except FileExistsError:
             pass
 
         start = time.time()
@@ -197,7 +204,7 @@ class MetaCoTrainingModel(torch.nn.Module):
 
     def forward(self, x):
         assert len(x) == len(self.models)
-        return sum([model(l.to(int(os.environ['RANK']) % torch.cuda.device_count())) for model, l in zip(self.models, x)])
+        return sum([model(view.to(int(os.environ['RANK']) % torch.cuda.device_count())) for model, view in zip(self.models, x)])
 
     def train(self, epochs, warmup, train_views, unlbl_views, val_views, test_views, checkpoint_path, optimizer=Adam, batch_size=1024, lr=1e-4, lr_scheduler=ReduceLROnPlateau, patience=1, amp=True, use_wandb=False, log_interval=1, approx=True, supervised=True):
         """
@@ -213,9 +220,6 @@ class MetaCoTrainingModel(torch.nn.Module):
         patience: patience for early stopping
         amp: whether or not to use automatic mixed precision
         wandb: whether or not to log to wandb
-
-        if the number of gpus is not divisible by the number of models then we are going to do normal DDP on each model
-        (this should raise a warning TODO, requires a distributed sampler)
 
         otherwise we are putting each of them on a different GPU and computing their batches simultaneously 
         """
@@ -234,7 +238,7 @@ class MetaCoTrainingModel(torch.nn.Module):
         mct_scaler = torch.cuda.amp.GradScaler()
 
         assert len(train_views) == len(val_views) == len(unlbl_views), f"number of views must be the same for train, unlabeled, val but got: {len(train_views)}, {len(unlbl_views)}, {len(val_views)}"
-        assert int(os.environ['WORLD_SIZE']) % len(self.models) == 0, f"number of models must be divisible by number of gpus"
+        assert int(os.environ['WORLD_SIZE']) % len(self.models) == 0, "number of models must be divisible by number of gpus"
 
 
         loss = nn.CrossEntropyLoss()
@@ -380,8 +384,8 @@ class MetaCoTrainingModel(torch.nn.Module):
                                     pickle.dump(self.models[j], fp)
 
                         torch.distributed.barrier()
-                        d[f'c_acc'] = self.co_accuracy(self.val_views)
-                        d[f'c_acc_test'] = self.co_accuracy(self.test_views)
+                        d['c_acc'] = self.co_accuracy(self.val_views)
+                        d['c_acc_test'] = self.co_accuracy(self.test_views)
 
                         scheduler.step(d[f'val_acc{i}'])
                         if int(os.environ['RANK']) < len(self.models):

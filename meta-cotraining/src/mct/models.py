@@ -1,6 +1,49 @@
 import torch
 import torch.nn as nn
+from copy import deepcopy as copy
 
+
+class LinearProbe(torch.nn.Module):
+    def __init__(self, module, size, num_classes):
+        super().__init__()
+        self.m = module
+
+        self.m.train()
+
+        self.linear = torch.nn.Linear(size, num_classes)
+    
+    def forward(self, x):
+        x = self.m(x).detach()
+        return self.linear(x)  / self.temperature
+
+
+class FPFT(torch.nn.Module):
+    def __init__(self, module):
+        super().__init__()
+        self.m = copy(module.m)
+
+        self.m.train()
+
+        self.linear = copy(module.linear)
+    
+    def forward(self, x):
+        x = self.m(x)
+        return self.linear(x) / self.temperature
+    
+
+class FinetunedLinearProbe(torch.nn.Module):
+    def __init__(self, module, temperature=1.0):
+        super().__init__()
+        self.m = copy(module.m)
+
+        self.m.train()
+
+        self.linear = copy(module.linear)
+        self.temperature = temperature
+    
+    def forward(self, x):
+        x = self.m(x).detach()
+        return self.linear(x) / self.temperature
 
 class FCNN(nn.Module):
 
