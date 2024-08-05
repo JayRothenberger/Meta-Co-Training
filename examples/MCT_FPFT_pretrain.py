@@ -2,22 +2,20 @@
 import argparse
 from copy import deepcopy as copy
 import pickle
-import time
 import os
 # installed imports
 import torch
 import torchvision
 import wandb
 # local code imports
-from models import FCNN
 from DAHS.DAHB import DistributedAsynchronousGridSearch
 from utils import subset_npercent_dataset
-from DAHS.torch_utils import *
+from DAHS.torch_utils import sync_parameters, setup, cleanup
 
 from MCT import MetaCoTrainingModel
 
 from image_distances import IMAGE_DISTANCES, IMAGE_TRANSFORMS
-from utils import LinearProbe, FPFT, FinetunedLinearProbe
+from utils import LinearProbe
 
 
 
@@ -29,7 +27,7 @@ def training_process(args, rank, world_size):
     trains = []
     unlbls = []
     vals = []
-    # TODO: fix this for when the gpus are not evenly divisible
+
     if rank < len(views):
         wandb.init(project=f'MCT pretrain {args.dataset} 10', entity='ai2es',
         name=f"{rank}: {args.train_size}",

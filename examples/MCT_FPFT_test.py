@@ -15,7 +15,7 @@ from DAHS.torch_utils import sync_parameters
 from MCT import MetaCoTrainingModel
 
 from image_distances import IMAGE_DISTANCES, IMAGE_TRANSFORMS
-from utils import LinearProbe, FPFT, FinetunedLinearProbe
+from utils import FPFT, FinetunedLinearProbe
 
 
 
@@ -35,8 +35,8 @@ def training_process(args, rank, world_size):
         config={'args': dict_args})
 
     for view in views:
-        dataset = torchvision.datasets.ImageNet('/ourdisk/hpc/ai2es/datasets/Imagenet/2012', split='train', transform=IMAGE_TRANSFORMS[view])
-        val = torchvision.datasets.ImageNet('/ourdisk/hpc/ai2es/datasets/Imagenet/2012', split='val', transform=IMAGE_TRANSFORMS[view])
+        dataset = torchvision.datasets.ImageNet(args.dataset_path, split='train', transform=IMAGE_TRANSFORMS[view])
+        val = torchvision.datasets.ImageNet(args.dataset_path, split='val', transform=IMAGE_TRANSFORMS[view])
 
         train, unlbl = subset_npercent_dataset(dataset, percent=args.train_size * 100)
         trains.append(train)
@@ -45,44 +45,18 @@ def training_process(args, rank, world_size):
 
     print('device count', torch.cuda.device_count())
 
-    num_classes = 1000
-
     models = [IMAGE_DISTANCES[view]().model for view in views]
 
     for model in models:
         model.to(0)
     
-    with torch.no_grad():
-        shapes = [model(train[0][0].unsqueeze(0).to(0)).shape[-1] for train, model in zip(trains, models)]
-
-    probes = [LinearProbe(model, shape, num_classes) for shape, model in zip(shapes, models)]
-
-    # MCTModel = MetaCoTrainingModel(probes)
-
-    # fine-tuning stage in which the model does not alter embedder weights
-
     trains1, unlbls1, vals1 = copy(trains), copy(unlbls), copy(vals)
 
-    # states = MCTModel.train(1, 2, trains, unlbls, vals, batch_size=args.batch_size, log_interval=100)
-
-    # synchronize those bad boys
-    # MCTModel.reduce_weights()
-    # pickle them
-    # start = time.time()
-    # if int(os.environ["RANK"]) == 0:
-    #     for i, m in enumerate(MCTModel.models):
-    #         with open(f'models_list_{i}', 'wb') as fp:
-    #             pickle.dump(MCTModel.models[i], fp)
-    # else:
-    #     time.sleep(60)
 
     model_list = []
     
     for i, m in enumerate(models):
         rankpath = f'pretrainbf16-384-x05_{i}'
-
-        #while os.path.getctime(rankpath) < start:
-        #    time.sleep(1)
 
         try:
             with open(rankpath, 'rb') as fp:
@@ -103,11 +77,9 @@ def training_process(args, rank, world_size):
 
     models = [FinetunedLinearProbe(model) for model in models]
 
-
     MCTModel = MetaCoTrainingModel(models)
     torch.distributed.barrier()
     states = MCTModel.train(args.epochs, 10, copy(trains1), copy(unlbls1), copy(vals1), checkpoint_path='no_fpft_mct_after', batch_size=args.batch_size, log_interval=100, approx=False)
-
 
     return states
 
