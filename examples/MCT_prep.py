@@ -2,7 +2,6 @@
 import argparse
 from copy import deepcopy as copy
 import pickle
-import time
 import os
 # installed imports
 import torch
@@ -10,13 +9,11 @@ import torchvision
 import wandb
 # local code imports
 from DAHS.DAHB import DistributedAsynchronousGridSearch
-from utils import subset_npercent_dataset
 from DAHS.torch_utils import sync_parameters, setup, cleanup
 
-from MCT import MetaCoTrainingModel
-
-from image_distances import IMAGE_DISTANCES, IMAGE_TRANSFORMS
-from utils import LinearProbe, FPFT, FinetunedLinearProbe
+from mct.image_models import IMAGE_DISTANCES, IMAGE_TRANSFORMS
+from mct.models import LinearProbe, FPFT, FinetunedLinearProbe, MetaCoTrainingModel
+from mct.utils import subset_npercent_dataset
 
 
 def training_process(args, rank, world_size):
@@ -64,7 +61,7 @@ def training_process(args, rank, world_size):
 
     MCTModel = MetaCoTrainingModel(probes)
 
-    # fine-tuning stage in which the model does not alter embedder weights
+    # preparation stage in which the model does not alter embedder weights
     states = MCTModel.train(args.epochs, args.epochs + 1, copy(trains), copy(unlbls), copy(vals), checkpoint_path=f'./chkpts/{args.view}_chkpt', batch_size=args.batch_size, log_interval=100)
 
     # synchronize those bad boys
@@ -75,10 +72,10 @@ def training_process(args, rank, world_size):
     MCTModel = MetaCoTrainingModel(models)
     torch.distributed.barrier()
 
-    # full-parameter finetuning
+    # warmup training for the views
     states = MCTModel.train(10, 10, copy(trains), copy(unlbls), copy(vals), checkpoint_path=f'./chkpts/{args.view}_chkpt_fpft', batch_size=args.batch_size, log_interval=100, approx=False)
 
-        # synchronize those bad boys
+    # synchronize those bad boys
     MCTModel.reduce_weights()
 
     models = [FinetunedLinearProbe(model) for model in models]

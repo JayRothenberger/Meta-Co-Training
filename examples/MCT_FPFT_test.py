@@ -9,13 +9,13 @@ import torchvision
 import wandb
 # local code imports
 from DAHS.DAHB import DistributedAsynchronousGridSearch
-from utils import subset_npercent_dataset
 from DAHS.torch_utils import sync_parameters
 
 from MCT import MetaCoTrainingModel
 
-from image_distances import IMAGE_DISTANCES, IMAGE_TRANSFORMS
-from utils import FPFT, FinetunedLinearProbe
+from mct.image_models import IMAGE_DISTANCES, IMAGE_TRANSFORMS
+from mct.models import FPFT, FinetunedLinearProbe
+from mct.utils import subset_npercent_dataset
 
 
 
@@ -28,7 +28,8 @@ def training_process(args, rank, world_size):
     trains = []
     unlbls = []
     vals = []
-    # TODO: fix this for when the gpus are not evenly divisible
+
+    # each view gets its own weights and biases process to monitor resources and performance
     if rank < len(views):
         wandb.init(project=f'MCT test {args.dataset}', entity='ai2es',
         name=f"{rank}: {args.train_size}",
@@ -37,7 +38,7 @@ def training_process(args, rank, world_size):
     for view in views:
         dataset = torchvision.datasets.ImageNet(args.dataset_path, split='train', transform=IMAGE_TRANSFORMS[view])
         val = torchvision.datasets.ImageNet(args.dataset_path, split='val', transform=IMAGE_TRANSFORMS[view])
-
+        # this function will know if 
         train, unlbl = subset_npercent_dataset(dataset, percent=args.train_size * 100)
         trains.append(train)
         unlbls.append(unlbl)

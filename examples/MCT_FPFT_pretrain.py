@@ -9,13 +9,13 @@ import torchvision
 import wandb
 # local code imports
 from DAHS.DAHB import DistributedAsynchronousGridSearch
-from utils import subset_npercent_dataset
 from DAHS.torch_utils import sync_parameters, setup, cleanup
 
-from MCT import MetaCoTrainingModel
+from mct.image_models import IMAGE_DISTANCES, IMAGE_TRANSFORMS
+from mct.models import LinearProbe, MetaCoTrainingModel
+from mct.utils import subset_npercent_dataset
 
-from image_distances import IMAGE_DISTANCES, IMAGE_TRANSFORMS
-from utils import LinearProbe
+
 
 
 
