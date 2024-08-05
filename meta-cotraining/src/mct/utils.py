@@ -213,7 +213,7 @@ class RepeatLoader:
 
 
 def create_imagefolder(data, samples, path, transform, new_path=None):
-    imgfolder = datasets.ImageFolder(path, transform=transform)
+    imgfolder = torch.data.datasets.ImageFolder(path, transform=transform)
     imgfolder.class_to_idx = data['class_map']
     imgfolder.classes = list(data['class_map'].keys())
     imgfolder.samples = samples
@@ -223,13 +223,6 @@ def create_imagefolder(data, samples, path, transform, new_path=None):
 
     return imgfolder
 
-def create_loader(data, cuda_kwargs, shuffle=False):
-    loader_kwargs = {'batch_size': BATCH_SIZE, 'shuffle': shuffle}
-    loader_kwargs.update(cuda_kwargs)
-
-    loader = DataLoader(data, **loader_kwargs)
-
-    return loader 
 
 def epoch_accuracy(loader_s, loader_t, student, teacher):
     student.eval()
