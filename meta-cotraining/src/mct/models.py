@@ -4,13 +4,29 @@ from copy import deepcopy as copy
 
 
 class LinearProbe(torch.nn.Module):
-    def __init__(self, module, size, num_classes):
+    def __init__(self, module, size, num_classes, temperature=1.0):
         super().__init__()
         self.m = module
 
         self.m.train()
 
         self.linear = torch.nn.Linear(size, num_classes)
+        self.temperature = temperature
+    
+    def forward(self, x):
+        x = self.m(x).detach()
+        return self.linear(x)  / self.temperature
+    
+
+class MLPProbe(torch.nn.Module):
+    def __init__(self, module, size, num_classes, temperature=1.0):
+        super().__init__()
+        self.m = module
+
+        self.m.train()
+        # we call it this despite its nature to allow compatabilit with FPFT and FinetunedLinearProbe
+        self.linear = FCNN(size, num_classes, [1024, 1024, 1024])
+        self.temperature = temperature
     
     def forward(self, x):
         x = self.m(x).detach()
@@ -18,13 +34,14 @@ class LinearProbe(torch.nn.Module):
 
 
 class FPFT(torch.nn.Module):
-    def __init__(self, module):
+    def __init__(self, module, temperature=1.0):
         super().__init__()
         self.m = copy(module.m)
 
         self.m.train()
 
         self.linear = copy(module.linear)
+        self.temperature = temperature
     
     def forward(self, x):
         x = self.m(x)
@@ -44,6 +61,7 @@ class FinetunedLinearProbe(torch.nn.Module):
     def forward(self, x):
         x = self.m(x).detach()
         return self.linear(x) / self.temperature
+
 
 class FCNN(nn.Module):
 
@@ -93,10 +111,6 @@ class FCNN(nn.Module):
             self.layers.extend([nn.Linear(hidden_dims[-1] + sum(skip), output_dim)])
         else:
             self.layers.append(nn.Linear(input_dim, output_dim))
-
-        #if normalize is not None:
-        #    self.layers.insert(0, self.normalize(output_dim))
-
         
 
     def forward(self, x):
