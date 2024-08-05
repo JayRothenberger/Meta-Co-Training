@@ -9,10 +9,9 @@ import torch
 import torchvision
 import wandb
 # local code imports
-from models import FCNN
 from DAHS.DAHB import DistributedAsynchronousGridSearch
 from utils import subset_npercent_dataset
-from DAHS.torch_utils import *
+from DAHS.torch_utils import sync_parameters, setup, cleanup
 
 from MCT import MetaCoTrainingModel
 
@@ -24,13 +23,7 @@ def training_process(args, rank, world_size):
     dict_args = vars(args)
     device = int(os.environ['RANK']) % torch.cuda.device_count()
 
-    # train0, unlbl0, val0, num_classes = make_concat_dataset(args.view0, 'EsViT', dataset=args.dataset, percent=args.train_size * 100, balanced=args.balanced)
-    # train1, unlbl1, val1, num_classes = make_concat_dataset(args.view1, 'MAE', dataset=args.dataset, percent=args.train_size * 100, balanced=args.balanced)
-    # TODO: 
-    # function that splits the data using the ImageDataset for the appropriate challenge
-    # build the models that we need to finetune
-    # 
-    assert args.view in ['DINOv2', 'CLIP', 'SigLIP', 'BLIPv2', 'OWLv2', 'Hiera', 'ALIGN']
+    assert args.view in ['DINOv2', 'CLIP']
 
     if args.view == 'DINOv2':
         args.batch_size = min(args.batch_size, 64)
@@ -43,11 +36,11 @@ def training_process(args, rank, world_size):
     if rank < len(views):
         wandb.init(project=f'MCT cold start {args.dataset} 1', entity='ai2es',
         name=f"({args.view}) {rank}: {args.train_size}",
-        config={'args': vars(args)})
+        config={'args': dict_args})
 
     for view in views:
-        dataset = torchvision.datasets.ImageNet('/ourdisk/hpc/ai2es/datasets/Imagenet/2012', split='train', transform=IMAGE_TRANSFORMS[view])
-        val = torchvision.datasets.ImageNet('/ourdisk/hpc/ai2es/datasets/Imagenet/2012', split='val', transform=IMAGE_TRANSFORMS[view])
+        dataset = torchvision.datasets.ImageNet(args.dataset_path, split='train', transform=IMAGE_TRANSFORMS[view])
+        val = torchvision.datasets.ImageNet(args.dataset_path, split='val', transform=IMAGE_TRANSFORMS[view])
 
         train, unlbl = subset_npercent_dataset(dataset, percent=args.train_size * 100)
         trains.append(train)
@@ -89,9 +82,6 @@ def training_process(args, rank, world_size):
     MCTModel.reduce_weights()
 
     models = [FinetunedLinearProbe(model) for model in models]
-
-    # pickle them (TODO)
-    start = time.time()
 
     if int(os.environ["RANK"]) == 0:
         for i, (m, a) in enumerate(zip(models, MCTModel.best_val_accs)):
@@ -137,9 +127,9 @@ def create_parser():
                         help='test batch size for training (default: 64)')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-3,
                         help='learning rate for SGD (default 1e-3)')
-    parser.add_argument('--dataset', type=str, default='IN1k', metavar='e', help='dataset for training')
-    parser.add_argument('--view', type=str, default= ['DINOv2', 'CLIP', 'SigLIP', 'BLIPv2', 'OWLv2', 'Hiera', 'ALIGN'], help='view to prepare')
-    parser.add_argument('--path', type=str, default='/ourdisk/hpc/ai2es/jroth/AI2ES_DL_Torch/MCT/one_percent_cold_start', help='path for hparam search directory')
+    parser.add_argument('--view', type=str, default= ['DINOv2', 'CLIP'], help='view to prepare')
+    parser.add_argument('--hparam_path', type=str, default='/ourdisk/hpc/ai2es/jroth/AI2ES_DL_Torch/MCT/one_percent_cold_start', help='path for hparam search directory')
+    parser.add_argument('--dataset_path', type=str, default='/ourdisk/hpc/ai2es/datasets/Imagenet/2012', help='path containing training dataset')
     parser.add_argument('--train_size', type=float, default=[0.01], help='size of the training set (%)')
     parser.add_argument('--balanced', type=bool, default=False, 
                         help='Balanced dataset subsetting if true, else stratified sampling')

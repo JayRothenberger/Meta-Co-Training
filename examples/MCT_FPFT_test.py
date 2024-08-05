@@ -1,43 +1,30 @@
-import numpy as np
+# standard library imports
+import argparse
+from copy import deepcopy as copy
+import pickle
+import os
+# installed imports
 import torch
 import torchvision
-import argparse
-import os
-from copy import deepcopy as copy
-
-from torchvision import datasets
-
-import pickle
-import time
-import torch.optim as optim
-
-from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch import nn
-from math import floor
 import wandb
+# local code imports
+from DAHS.DAHB import DistributedAsynchronousGridSearch
+from utils import subset_npercent_dataset
+from DAHS.torch_utils import sync_parameters
+
+from MCT import MetaCoTrainingModel
+
+from image_distances import IMAGE_DISTANCES, IMAGE_TRANSFORMS
+from utils import LinearProbe, FPFT, FinetunedLinearProbe
+
 
 
 def training_process(args, rank, world_size):
     dict_args = vars(args)
 
-    from models import FCNN
-    from utils import subset_npercent_dataset
-    from MCT import MetaCoTrainingModel
-    from torchvision.transforms import v2
-    from image_distances import IMAGE_DISTANCES, IMAGE_TRANSFORMS
-
     torch.manual_seed(13)
 
-    # train0, unlbl0, val0, num_classes = make_concat_dataset(args.view0, 'EsViT', dataset=args.dataset, percent=args.train_size * 100, balanced=args.balanced)
-    # train1, unlbl1, val1, num_classes = make_concat_dataset(args.view1, 'MAE', dataset=args.dataset, percent=args.train_size * 100, balanced=args.balanced)
-    # TODO: 
-    # function that splits the data using the ImageDataset for the appropriate challenge
-    # build the models that we need to finetune
-    # 
-    # views = ['DINOv2', 'CLIP', 'EsViT']
-    views = ['DINOv2', 'CLIP', 'SigLIP']
+    views = ['DINOv2', 'CLIP']
     trains = []
     unlbls = []
     vals = []
@@ -45,7 +32,7 @@ def training_process(args, rank, world_size):
     if rank < len(views):
         wandb.init(project=f'MCT test {args.dataset}', entity='ai2es',
         name=f"{rank}: {args.train_size}",
-        config={'args': vars(args)})
+        config={'args': dict_args})
 
     for view in views:
         dataset = torchvision.datasets.ImageNet('/ourdisk/hpc/ai2es/datasets/Imagenet/2012', split='train', transform=IMAGE_TRANSFORMS[view])
@@ -132,10 +119,6 @@ def cleanup():
 
 def main(args, rank, world_size):
     setup(rank, world_size)
-
-    from DAHS.DAHB import DistributedAsynchronousGridSearch
-    from DAHS.torch_utils import sync_parameters
-
     search_space = ['train_size']
 
     agent = sync_parameters(args, rank, search_space, DistributedAsynchronousGridSearch)
@@ -168,8 +151,8 @@ def create_parser():
                         help='learning rate for SGD (default 1e-3)')
     parser.add_argument('--dataset', type=str, default='IN1k', metavar='e',
                         help='embeddings over which to compute the distances')
-    parser.add_argument('--path', type=str, default='/ourdisk/hpc/ai2es/jroth/AI2ES_DL_Torch/MCT/one_percent_man',
-                        help='path for hparam search directory')
+    parser.add_argument('--hparam_path', type=str, default='/ourdisk/hpc/ai2es/jroth/AI2ES_DL_Torch/MCT/one_percent_cold_start', help='path for hparam search directory')
+    parser.add_argument('--dataset_path', type=str, default='/ourdisk/hpc/ai2es/datasets/Imagenet/2012', help='path containing training dataset')
     parser.add_argument('--train_size', type=float, default=[0.01],
                         help='size of the training set (%)')
     parser.add_argument('--balanced', type=bool, default=False, 

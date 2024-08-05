@@ -1,32 +1,24 @@
-import numpy as np
-import torch
-import torchvision
+# standard library imports
 import argparse
 from copy import deepcopy as copy
-import os
-
-from torchvision import datasets
-
 import pickle
 import time
-import torch.optim as optim
-
-from torch.utils.data import DataLoader
-from torch.utils.data.distributed import DistributedSampler
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch import nn
-from math import floor
+import os
+# installed imports
+import torch
+import torchvision
 import wandb
-
+# local code imports
 from models import FCNN
 from DAHS.DAHB import DistributedAsynchronousGridSearch
-from utils import setup, cleanup
-from DAHS.torch_utils import sync_parameters, subset_npercent_dataset
+from utils import subset_npercent_dataset
+from DAHS.torch_utils import *
 
 from MCT import MetaCoTrainingModel
-from torchvision.transforms import v2
 
 from image_distances import IMAGE_DISTANCES, IMAGE_TRANSFORMS
+from utils import LinearProbe, FPFT, FinetunedLinearProbe
+
 
 
 def training_process(args, rank, world_size):
@@ -119,8 +111,8 @@ def create_parser():
                         help='learning rate for SGD (default 1e-3)')
     parser.add_argument('--dataset', type=str, default='IN1k', metavar='e',
                         help='embeddings over which to compute the distances')
-    parser.add_argument('--path', type=str, default='/ourdisk/hpc/ai2es/jroth/AI2ES_DL_Torch/MCT/ten_percent_man',
-                        help='path for hparam search directory')
+    parser.add_argument('--hparam_path', type=str, default='/ourdisk/hpc/ai2es/jroth/AI2ES_DL_Torch/MCT/one_percent_cold_start', help='path for hparam search directory')
+    parser.add_argument('--dataset_path', type=str, default='/ourdisk/hpc/ai2es/datasets/Imagenet/2012', help='path containing training dataset')
     parser.add_argument('--train_size', type=float, default=[0.1],
                         help='size of the training set (%)')
     parser.add_argument('--balanced', type=bool, default=False, 
