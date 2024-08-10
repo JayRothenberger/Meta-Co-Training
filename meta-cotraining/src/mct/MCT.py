@@ -44,17 +44,14 @@ class DiffAllGather(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, *grad_outs):
-        print(os.environ["RANK"], "grads out length:", len(grad_outs))
         grad_outs = torch.stack(grad_outs)
-        print(os.environ["RANK"], "grads out:", grad_outs)
         dist.all_reduce(grad_outs, op=torch.distributed.ReduceOp.SUM)
-        print(os.environ["RANK"], "grads out reduced:", grad_outs)
         torch.distributed.barrier()
         return grad_outs[dist.get_rank()]
 
 
 def make_loader(view, num_models, batch_size, shuffle=True):
-    kwargs={'num_workers': 12, 'pin_memory': True, 'shuffle': False}
+    kwargs={'num_workers': 4, 'pin_memory': True, 'shuffle': False}
 
     sampler = DistributedSampler(view, rank=int(os.environ['RANK']) // num_models, num_replicas=int(os.environ['WORLD_SIZE']) // num_models, shuffle=shuffle)
 
@@ -225,7 +222,6 @@ class MetaCoTrainingModel(torch.nn.Module):
         """
         # TODO: add early stopping
         # only log to wandb if the option is set
-        print('training')
 
         optimizers = []
         mct_optimizers = []
@@ -316,13 +312,19 @@ class MetaCoTrainingModel(torch.nn.Module):
                         out = model(X.to(int(os.environ['RANK']) % torch.cuda.device_count()))
                         loss_sup = loss(out, y.to(int(os.environ['RANK']) % torch.cuda.device_count())) / self.accum_steps
 
-                    scaler.scale(loss_sup).backward()
+                    if amp:
+                        scaler.scale(loss_sup).backward()
+                    else:
+                        loss_sup.backward()
                     
                     if self.s % self.accum_steps == self.accum_steps - 1:
                         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-                        scaler.step(optimizer)
-                        scaler.update()
+                        if amp:
+                            scaler.step(optimizer)
+                            scaler.update()
+                        else:
+                            optimizer.step()
 
                         optimizer.zero_grad()
                         
@@ -343,7 +345,7 @@ class MetaCoTrainingModel(torch.nn.Module):
 
                         scheduler.step(d[f'val_acc{i}'])
                         if int(os.environ['RANK']) < len(self.models):
-                            wandb.log(d, step=self.s)
+                            wandb.log(d)
 
                             if stopper.is_new_best_metric(d[f'val_acc{i}'], float('inf')):
                                 states[f'model{i}_state'] = model.state_dict()
@@ -369,7 +371,7 @@ class MetaCoTrainingModel(torch.nn.Module):
                     X, y = X[0]
 
                     self.mct(U.to(int(os.environ['RANK']) % torch.cuda.device_count()), X.to(int(os.environ['RANK']) % torch.cuda.device_count()), y.to(int(os.environ['RANK']) % torch.cuda.device_count()),
-                                model, optimizer, mct_scaler, loss=loss, supervised=supervised, approx=approx)
+                                model, optimizer, mct_scaler, loss=loss, supervised=supervised, approx=approx, amp=amp)
 
                     if self.s % log_interval == 0:
                         model.eval()
@@ -389,7 +391,7 @@ class MetaCoTrainingModel(torch.nn.Module):
 
                         scheduler.step(d[f'val_acc{i}'])
                         if int(os.environ['RANK']) < len(self.models):
-                            wandb.log(d, step=self.s)
+                            wandb.log(d)
 
                             if stopper.is_new_best_metric(d[f'val_acc{i}'], float('inf')):
                                 states[f'model{i}_state'] = model.state_dict()
@@ -426,7 +428,7 @@ class MetaCoTrainingModel(torch.nn.Module):
             into.clear()
         
 
-    def mct(self, U, X, y, model, optimizer, scaler, loss=torch.nn.CrossEntropyLoss(), supervised=True, approx=False):
+    def mct(self, U, X, y, model, optimizer, scaler, loss=torch.nn.CrossEntropyLoss(), supervised=True, approx=False, amp=True):
         accum_steps = self.accum_steps
         dist.broadcast(U, 0)
 
@@ -453,13 +455,17 @@ class MetaCoTrainingModel(torch.nn.Module):
             self.store_gradient(model, self.self_loss_grads)
 
             with torch.autocast(device_type="cuda", dtype=self.autocast_type):
-
-                SPL_o = model(U)
+                # pseudo-supervision is performed as inference
+                # this can yield a more accurate prediction which is ideal for the pseudo-supervision
+                with torch.no_grad():
+                    model.eval()
+                    SPL_o = model(U)
+                    model.train()
 
                 # gather the PLs from the other ranks
-                SPL = self.other_pool_reduce(SPL_o).detach()
-                assert not torch.equal(SPL_o, torch.zeros_like(SPL_o))
-
+                SPL = self.other_pool_reduce(SPL_o.detach().clone()).detach()
+                assert not torch.equal(SPL, torch.zeros_like(SPL))
+                # pseudo label from other model supervision
                 PL = torch.tensor([
                     np.random.choice(np.arange(SPL.shape[-1]),
                                                  None, 
@@ -475,11 +481,32 @@ class MetaCoTrainingModel(torch.nn.Module):
                                     ) 
                                 for xi in range(SPL.shape[0])
                                 ]).to(device) # sample from the SPL distribution (taking the argmax may be more stable if calibration is poor)
-
-                self_loss = loss(SPL_o, PL)
                 
+                # we run the forward again in training mode for this model's self-loss
+                self_predict = model(U)
+                # pseudo label from this model
+                PL_o = torch.tensor([
+                    np.random.choice(np.arange(self_predict.shape[-1]),
+                                                 None, 
+                                                 False, 
+                                                 torch.nn.Softmax(-1)(
+                                                            torch.clamp(
+                                                            torch.nan_to_num(
+                                                                        self_predict.type(torch.float32)
+                                                                    ), 
+                                                                    -2**14, 2**14
+                                                                    )
+                                                                ).detach().cpu().numpy()[xi]
+                                    ) 
+                                for xi in range(self_predict.shape[0])
+                                ]).to(device) # sample from the SPL_o distribution (taking the argmax may be more stable if calibration is poor)
 
-            scaler.scale(self_loss).backward()
+                self_loss = loss(self_predict, PL_o)
+
+            if amp:
+                scaler.scale(self_loss).backward()
+            else:
+                self_loss.backward()
 
             torch.distributed.barrier()
             # accumulate the self loss grads over the number of steps
@@ -502,8 +529,10 @@ class MetaCoTrainingModel(torch.nn.Module):
                 loss_initial_pl = loss(initial_output_u, PL)
             
             optimizer.zero_grad()
-            scaler.scale(loss_initial_pl).backward()
-            # loss_initial_pl.backward()
+            if amp:
+                scaler.scale(loss_initial_pl).backward()
+            else:
+                loss_initial_pl.backward()
 
             if self.s % mct_length == (accum_steps - 1):
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -511,10 +540,11 @@ class MetaCoTrainingModel(torch.nn.Module):
                     self.accumulate_gradient(copy(model), self.grads1)
 
                 # update the student parameters based on pseudo labels from teacher
-                print('student step')
-                scaler.step(optimizer)
-                # optimizer.step()
-                scaler.update()
+                if amp:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
                 optimizer.zero_grad()
 
         elif self.s % mct_length < (2 * accum_steps):
@@ -530,10 +560,14 @@ class MetaCoTrainingModel(torch.nn.Module):
                     loss_final = loss(final_output, y)
 
             if approx:
-                scaler.scale(loss_final)
+                if amp:
+                    scaler.scale(loss_final)
                 self.loss_final += self.other_pool_reduce(loss_final.detach().clone())
             else:
-                scaler.scale(loss_final).backward()
+                if amp:
+                    scaler.scale(loss_final).backward()
+                else:
+                    loss_final.backward()
 
                 self.loss_final += self.other_pool_reduce(loss_final.detach().clone())
 
@@ -549,7 +583,10 @@ class MetaCoTrainingModel(torch.nn.Module):
                     out = model(X)
                     loss_sup = loss(out, y)
                     # TODO: this should be reduced among the members of the process group
-                    scaler.scale(loss_sup).backward()
+                    if amp:
+                        scaler.scale(loss_sup).backward()
+                    else:
+                        loss_sup.backward()
                     self.accumulate_gradient(model, self.supervised_grads)
             
             optimizer.zero_grad()
@@ -580,7 +617,10 @@ class MetaCoTrainingModel(torch.nn.Module):
 
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             
-            scaler.step(optimizer)
-            scaler.update()
+            if amp:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
             optimizer.zero_grad()
             

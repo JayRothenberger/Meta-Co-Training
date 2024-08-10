@@ -1104,7 +1104,7 @@ class MAE_distance(SSL_distance):
     """
     masked autoencoder distance
     """
-    def __init__(self, chkpt_path='/home/models/mae_pretrain_vit_large.pth', model=vit_base_patch16):
+    def __init__(self, chkpt_path='./mae_pretrain_vit_large.pth', model=vit_base_patch16):
         model = vit_large_patch16()
         checkpoint = torch.load(chkpt_path)
 
@@ -1133,7 +1133,7 @@ class EsViT_distance(SSL_distance):
     """
     EsVit distance
     """
-    def __init__(self, chkpt_path='/home/models/esvit_swin_b.pth', model=vit_base_patch16):
+    def __init__(self, chkpt_path='./esvit_swin_b.pth', model=vit_base_patch16):
         model = swin_b()
         checkpoint = torch.load(chkpt_path)
         checkpoint_model = checkpoint['student']
@@ -1150,8 +1150,8 @@ class DINOv2_distance(SSL_distance):
     DINOv2 distance
     """
     def __init__(self, model='dinov2_vitl14_reg'):
-        os.environ['TORCH_HOME'] = '/home/models/'
-        os.environ['TORCH_HUB'] = '/home/models/'
+        os.environ['TORCH_HOME'] = '.'
+        os.environ['TORCH_HUB'] = '.'
         self.model = torch.hub.load('facebookresearch/dinov2', model)
         
         # self.model = model.to(visible_device)
@@ -1161,8 +1161,8 @@ class Heira_distance(SSL_distance):
     DINOv2 distance
     """
     def __init__(self, model='dinov2_vitl14_reg'):
-        os.environ['TORCH_HOME'] = '/home/models/'
-        os.environ['TORCH_HUB'] = '/home/models/'
+        os.environ['TORCH_HOME'] = '.'
+        os.environ['TORCH_HUB'] = '.'
         self.model = torch.hub.load("facebookresearch/hiera", model="mae_hiera_base_224", pretrained=True, checkpoint="mae_in1k")
         
 
@@ -1180,7 +1180,7 @@ class CLIP_distance(SSL_distance):
     CLIP distance
     """
     def __init__(self, model='ViT-B/16'):
-        os.environ['HF_HOME'] = '/scratch/jroth'
+        os.environ['HF_HOME'] = '.'
         # model, _ = clip.load(model, device='cpu', download_root='/scratch/jroth/models/')
         self.model = CLIP_wrapper()
         # self.model = model.visual.to(visible_device)
@@ -1200,7 +1200,7 @@ class BLIPv2_distance(SSL_distance):
     BLIPv2 distance
     """
     def __init__(self, model='ViT-B/16'):
-        os.environ['HF_HOME'] = '/scratch/jroth'
+        os.environ['HF_HOME'] = '.'
         # model, _ = clip.load(model, device='cpu', download_root='/scratch/jroth/models/')
         self.model = BLIPv2_wrapper()
         # self.model = model.visual.to(visible_device)
@@ -1220,7 +1220,7 @@ class OWLv2_distance(SSL_distance):
     OWLv2 distance
     """
     def __init__(self, model='ViT-B/16'):
-        os.environ['HF_HOME'] = '/scratch/jroth'
+        os.environ['HF_HOME'] = '.'
         # model, _ = clip.load(model, device='cpu', download_root='/scratch/jroth/models/')
         self.model = OWLv2_wrapper()
         # self.model = model.visual.to(visible_device)
@@ -1241,7 +1241,7 @@ class ALIGN_distance(SSL_distance):
     ALIGN distance
     """
     def __init__(self, model='ViT-B/16'):
-        os.environ['HF_HOME'] = '/scratch/jroth'
+        os.environ['HF_HOME'] = '.'
         # model, _ = clip.load(model, device='cpu', download_root='/scratch/jroth/models/')
         self.model = ALIGN_wrapper()
         # self.model = model.visual.to(visible_device)
@@ -1262,7 +1262,7 @@ class SigLIP_distance(SSL_distance):
     CLIP distance
     """
     def __init__(self, model='ViT-B/16'):
-        os.environ['HF_HOME'] = '/scratch/jroth'
+        os.environ['HF_HOME'] = '.'
         # model, _ = clip.load(model, device='cpu', download_root='/scratch/jroth/models/')
         self.model = SigLIP_wrapper()
         # self.model = model.visual.to(visible_device)
@@ -1270,7 +1270,7 @@ class SigLIP_distance(SSL_distance):
 
 class SwAV_distance(SSL_distance):
     def __init__(self, model='resnet50w4'):
-        os.environ['TORCH_HOME'] = '/home/models/'
+        os.environ['TORCH_HOME'] = '.'
         model = torch.hub.load('facebookresearch/swav:main', model)
         self.model = model
         # self.model = model.to(visible_device)
