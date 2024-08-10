@@ -1,0 +1,16 @@
+LICENSE
+README.md
+pyproject.toml
+src/mct/MCT.py
+src/mct/__init__.py
+src/mct/embed_dataset.py
+src/mct/image_models.py
+src/mct/make_10percent.py
+src/mct/make_samples_list.py
+src/mct/models.py
+src/mct/process_iNat.py
+src/mct/utils.py
+src/mct.egg-info/PKG-INFO
+src/mct.egg-info/SOURCES.txt
+src/mct.egg-info/dependency_links.txt
+src/mct.egg-info/top_level.txt
