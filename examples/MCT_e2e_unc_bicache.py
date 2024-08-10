@@ -11,10 +11,9 @@ from mct.dahps import DistributedAsynchronousGridSearch, sync_parameters
 
 from mct.MCT import MetaCoTrainingModel
 from mct.image_models import IMAGE_DISTANCES, IMAGE_TRANSFORMS
-from mct.models import FPFT, FinetunedLinearProbe, MLPProbe_ENS
+from mct.models import FPFT, FinetunedLinearProbe, MLPProbe_ENS, MLPProbe
 from mct.utils import subset_npercent_dataset
-
-
+from bicache.datasets import BiLevelCachedDataset
 
 def training_process(args, rank, world_size):
     dict_args = vars(args)
@@ -43,6 +42,7 @@ def training_process(args, rank, world_size):
         val = torchvision.datasets.ImageNet(args.dataset_path, split='val', transform=IMAGE_TRANSFORMS[view])
 
         train, unlbl = subset_npercent_dataset(dataset, percent=args.train_size * 100)
+
         trains.append(train)
         unlbls.append(unlbl)
         vals.append(val)
@@ -64,8 +64,21 @@ def training_process(args, rank, world_size):
 
     MCTModel = MetaCoTrainingModel(models)
 
+    trains_cached = [BiLevelCachedDataset(train,
+                                        memory_cache_size=250_000_000_000, 
+                                        disk_cache_size=250_000_000_000, 
+                                        disk_cache_path=os.environ['LSCRATCH'] + '/cache'
+                                        ) for train in trains]
+    
+    unlbls_cached = [BiLevelCachedDataset(unlbl,
+                                        memory_cache_size=250_000_000_000, 
+                                        disk_cache_size=250_000_000_000, 
+                                        disk_cache_path=os.environ['LSCRATCH'] + '/cache'
+                                        ) for unlbl in unlbls]
+        
+
     # preparation stage in which the model does not alter embedder weights
-    states = MCTModel.train(args.warmup_epochs, args.warmup_epochs + 1, copy(trains), copy(unlbls), copy(vals), copy(vals), checkpoint_path=f'./chkpts/{view}_chkpt', batch_size=args.batch_size, log_interval=100, amp=True)
+    states = MCTModel.train(args.warmup_epochs, args.warmup_epochs + 1, trains_cached, unlbls_cached, copy(vals), copy(vals), checkpoint_path=f'./chkpts/{view}_chkpt', batch_size=args.batch_size, log_interval=100, amp=False)
 
     if args.fpft:
         # full-parameter fine-tuning on their respective datasets (this is exclusively supervised)
@@ -73,14 +86,40 @@ def training_process(args, rank, world_size):
         
         MCTModel = MetaCoTrainingModel(models)
         torch.distributed.barrier()
-        states = MCTModel.train(args.fpft_epochs, args.fpft_epochs + 1, copy(trains), copy(unlbls), copy(vals), copy(vals), checkpoint_path='no_fpft_mct', batch_size=args.batch_size, log_interval=100, approx=False, amp=True)
+
+        trains_cached = [BiLevelCachedDataset(train,
+                                        memory_cache_size=250_000_000_000, 
+                                        disk_cache_size=250_000_000_000, 
+                                        disk_cache_path=os.environ['LSCRATCH'] + '/cache'
+                                        ) for train in trains]
+        
+        unlbls_cached = [BiLevelCachedDataset(unlbl,
+                                            memory_cache_size=250_000_000_000, 
+                                            disk_cache_size=250_000_000_000, 
+                                            disk_cache_path=os.environ['LSCRATCH'] + '/cache'
+                                            ) for unlbl in unlbls]
+
+        states = MCTModel.train(args.fpft_epochs, args.fpft_epochs + 1, trains_cached, unlbls_cached, copy(vals), copy(vals), checkpoint_path='no_fpft_mct', batch_size=args.batch_size, log_interval=100, approx=False, amp=False)
 
         # now the meta co-training step with the representation frozen which empirically prevents collapse
         models = [FinetunedLinearProbe(model) for model in models]
 
     MCTModel = MetaCoTrainingModel(models)
     torch.distributed.barrier()
-    states = MCTModel.train(args.epochs, 0, copy(trains), copy(unlbls), copy(vals), copy(vals), checkpoint_path='no_fpft_mct_after', batch_size=args.batch_size, log_interval=100, approx=False, amp=True)
+
+    trains_cached = [BiLevelCachedDataset(train,
+                                        memory_cache_size=250_000_000_000, 
+                                        disk_cache_size=250_000_000_000, 
+                                        disk_cache_path=os.environ['LSCRATCH'] + '/cache'
+                                        ) for train in trains]
+    
+    unlbls_cached = [BiLevelCachedDataset(unlbl,
+                                        memory_cache_size=250_000_000_000, 
+                                        disk_cache_size=250_000_000_000, 
+                                        disk_cache_path=os.environ['LSCRATCH'] + '/cache'
+                                        ) for unlbl in unlbls]
+
+    states = MCTModel.train(args.epochs, 0, trains_cached, unlbls_cached, copy(vals), copy(vals), checkpoint_path='no_fpft_mct_after', batch_size=args.batch_size, log_interval=100, approx=False, amp=False)
 
     return states
 
@@ -114,13 +153,13 @@ def main(args, rank, world_size):
 def create_parser():
     parser = argparse.ArgumentParser(description='MCT benchmark')
     
-    parser.add_argument('--warmup_epochs', type=int, default=30, 
+    parser.add_argument('--warmup_epochs', type=int, default=20, 
                         help='warmup epochs (default: 10)')
-    parser.add_argument('--fpft_epochs', type=int, default=30, 
+    parser.add_argument('--fpft_epochs', type=int, default=20, 
                         help='fpft epochs (default: 10)')
     parser.add_argument('--epochs', type=int, default=100, 
                         help='training epochs (default: 10)')
-    parser.add_argument('-b', '--batch_size', type=int, default=512, 
+    parser.add_argument('-b', '--batch_size', type=int, default=64, 
                         help='batch size for training (default: 64)')
     parser.add_argument('-p', '--patience', type=int, default=32, 
                         help='patience for training')
@@ -147,6 +186,5 @@ if __name__ == '__main__':
     
     world_size = int(os.environ["WORLD_SIZE"])
     rank = int(os.environ["RANK"])
-    torch.multiprocessing.set_start_method('spawn')
 
     main(args, rank, world_size)

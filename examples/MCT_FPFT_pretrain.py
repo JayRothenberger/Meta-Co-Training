@@ -16,9 +16,6 @@ from mct.models import LinearProbe, MetaCoTrainingModel
 from mct.utils import subset_npercent_dataset
 
 
-
-
-
 def training_process(args, rank, world_size):
     dict_args = vars(args)
     device = int(os.environ['RANK']) % torch.cuda.device_count()
@@ -34,8 +31,8 @@ def training_process(args, rank, world_size):
         config={'args': dict_args})
 
     for view in views:
-        dataset = torchvision.datasets.ImageNet('/ourdisk/hpc/ai2es/datasets/Imagenet/2012', split='train', transform=IMAGE_TRANSFORMS[view])
-        val = torchvision.datasets.ImageNet('/ourdisk/hpc/ai2es/datasets/Imagenet/2012', split='val', transform=IMAGE_TRANSFORMS[view])
+        dataset = torchvision.datasets.ImageNet(args.dataset_path, split='train', transform=IMAGE_TRANSFORMS[view])
+        val = torchvision.datasets.ImageNet(args.dataset_path, split='val', transform=IMAGE_TRANSFORMS[view])
 
         train, unlbl = subset_npercent_dataset(dataset, percent=args.train_size * 100)
         trains.append(train)

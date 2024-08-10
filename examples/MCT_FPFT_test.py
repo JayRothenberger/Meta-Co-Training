@@ -38,7 +38,7 @@ def training_process(args, rank, world_size):
     for view in views:
         dataset = torchvision.datasets.ImageNet(args.dataset_path, split='train', transform=IMAGE_TRANSFORMS[view])
         val = torchvision.datasets.ImageNet(args.dataset_path, split='val', transform=IMAGE_TRANSFORMS[view])
-        # this function will know if 
+        # this function will know if we should use the index subset files rather than a random subset
         train, unlbl = subset_npercent_dataset(dataset, percent=args.train_size * 100)
         trains.append(train)
         unlbls.append(unlbl)
@@ -53,7 +53,6 @@ def training_process(args, rank, world_size):
     
     trains1, unlbls1, vals1 = copy(trains), copy(unlbls), copy(vals)
 
-
     model_list = []
     
     for i, m in enumerate(models):
@@ -65,6 +64,7 @@ def training_process(args, rank, world_size):
         except Exception as e:
             print(os.environ["RANK"], ':', e)
 
+    # full-parameter fine-tuning on their respective datasets (this is exclusively supervised)
     models = [FPFT(model) for model in model_list]
 
     models = [models[0], models[-1]]
@@ -76,6 +76,7 @@ def training_process(args, rank, world_size):
     torch.distributed.barrier()
     states = MCTModel.train(10, 10, copy(trains1), copy(unlbls1), copy(vals1), checkpoint_path='no_fpft_mct', batch_size=args.batch_size, log_interval=100, approx=False)
 
+    # now the meta co-training step with the representation frozen which empirically prevents collapse
     models = [FinetunedLinearProbe(model) for model in models]
 
     MCTModel = MetaCoTrainingModel(models)
