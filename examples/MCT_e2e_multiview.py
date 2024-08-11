@@ -11,7 +11,7 @@ from mct.dahps import DistributedAsynchronousGridSearch, sync_parameters
 
 from mct.MCT import MetaCoTrainingModel
 from mct.image_models import IMAGE_DISTANCES, IMAGE_TRANSFORMS
-from mct.models import FPFT, FinetunedLinearProbe, MLPProbe_ENS
+from mct.models import FPFT, FinetunedLinearProbe, MLPProbe
 from mct.utils import subset_npercent_dataset
 
 
@@ -24,7 +24,7 @@ def training_process(args, rank, world_size):
     torch.manual_seed(13)
     torch.cuda.set_device(device)
 
-    views = ['DINOv2', 'EsViT']
+    views = ['DINOv2', 'CLIP', 'SigLIP', 'EsViT']
 
     view = views[int(os.environ['RANK']) % len(views)]
 
@@ -34,7 +34,7 @@ def training_process(args, rank, world_size):
 
     # each view gets its own weights and biases process to monitor resources and performance
     if rank < len(views):
-        wandb.init(project=f'MCT e2e with unc {args.dataset}', entity='ai2es',
+        wandb.init(project=f'MCT e2e multiview {args.dataset}', entity='ai2es',
         name=f"{rank}: {args.train_size}",
         config={'args': dict_args})
 
@@ -60,9 +60,9 @@ def training_process(args, rank, world_size):
             print(os.environ['RANK'], view, device)
             shapes.append(model(train[0][0].unsqueeze(0).to(device)).shape[-1])
 
-    models = [MLPProbe_ENS(model, shape, num_classes) for shape, model in zip(shapes, models)]
+    models = [MLPProbe(model, shape, num_classes) for shape, model in zip(shapes, models)]
 
-    MCTModel = MetaCoTrainingModel(models, accum_steps=2)
+    MCTModel = MetaCoTrainingModel(models)
 
     # preparation stage in which the model does not alter embedder weights
     states = MCTModel.train(args.warmup_epochs, args.warmup_epochs + 1, copy(trains), copy(unlbls), copy(vals), copy(vals), checkpoint_path=f'./chkpts/{view}_chkpt', batch_size=args.batch_size, log_interval=100, amp=True)
@@ -114,17 +114,17 @@ def main(args, rank, world_size):
 def create_parser():
     parser = argparse.ArgumentParser(description='MCT benchmark')
     
-    parser.add_argument('--warmup_epochs', type=int, default=100, 
+    parser.add_argument('--warmup_epochs', type=int, default=45, 
                         help='warmup epochs (default: 10)')
-    parser.add_argument('--fpft_epochs', type=int, default=100, 
+    parser.add_argument('--fpft_epochs', type=int, default=45, 
                         help='fpft epochs (default: 10)')
-    parser.add_argument('--epochs', type=int, default=250, 
+    parser.add_argument('--epochs', type=int, default=150, 
                         help='training epochs (default: 10)')
-    parser.add_argument('-b', '--batch_size', type=int, default=1024, 
+    parser.add_argument('-b', '--batch_size', type=int, default=512, 
                         help='batch size for training (default: 64)')
     parser.add_argument('-p', '--patience', type=int, default=32, 
                         help='patience for training')
-    parser.add_argument('-tb', '--test_batch_size', type=int, default=512, 
+    parser.add_argument('-tb', '--test_batch_size', type=int, default=64, 
                         help='test batch size for training (default: 64)')
     parser.add_argument('-lr', '--learning_rate', type=float, default=1e-3,
                         help='learning rate for SGD (default 1e-3)')
