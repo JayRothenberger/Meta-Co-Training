@@ -1,5 +1,5 @@
 """
-mct/dahps.py by Jay Rothenberger (jay.c.rothenberger@gmail.com)
+logistics/dahps.py by Jay Rothenberger (jay.c.rothenberger@gmail.com)
 
 Distributed Asynchronous Hyper Parameter Search is a style of hyperparameter optimization that
 maintains a persistent state, in this case in a external database, which is used to coordinate
@@ -185,7 +185,11 @@ class DistributedAsynchronousHyperBand:
         self.get_new_combination()
 
     def to_namespace(self, combination):
-        combination = json.loads(combination)
+        try:
+            combination = json.loads(combination)
+        except TypeError as e:
+            print('no combination left to load...')
+            return None
         args = vars(self.args)
         args.update(combination)
         return Namespace(**args)
@@ -271,12 +275,14 @@ class DistributedAsynchronousHyperBand:
             if i > 0:
                 self.index, self.combination, self.path, self.metric = res.pop(0)
                 # mark the new combination as in progress
+                cur.execute(f"DELETE FROM todo{i} WHERE num = {self.index}")
                 cur.execute(f"INSERT INTO running{i} VALUES"
                             f"({self.index}, '{self.combination}', '{self.path}', {self.metric})")
             else:
                 self.index, self.combination = res.pop(0)
                 self.path = self.get_path(self.combination)
                 # mark the new combination as in progress
+                cur.execute(f"DELETE FROM todo{i} WHERE num = {self.index}")
                 cur.execute(f"INSERT INTO running{i} VALUES"
                             f"({self.index}, '{self.combination}', '{self.path}')")
                 
@@ -390,7 +396,6 @@ class DistributedAsynchronousGridSearch:
         self.search_space = search_space
         self.args = args
 
-
         # this is always just going to store the output from the dataset
         self.index = None
         self.combination = None
@@ -425,7 +430,12 @@ class DistributedAsynchronousGridSearch:
 
 
     def to_namespace(self, combination):
-        combination = json.loads(combination)
+        try:
+            combination = json.loads(combination)
+        except TypeError as e:
+            print('no combination left to load...')
+            return None
+
         args = vars(self.args)
         args.update(combination)
         return Namespace(**args)
@@ -475,6 +485,7 @@ class DistributedAsynchronousGridSearch:
 
             self.path = self.get_path(self.combination)
             # mark the new combination as in progress
+            cur.execute(f"DELETE FROM todo WHERE num = {self.index}")
             cur.execute(f"INSERT INTO running VALUES"
                         f"({self.index}, '{self.combination}', '{self.path}')")
             con.commit()
@@ -606,7 +617,11 @@ class DistributedAsynchronousRandomSearch:
 
 
     def to_namespace(self, combination):
-        combination = json.loads(combination)
+        try:
+            combination = json.loads(combination)
+        except TypeError as e:
+            print('no combination left to load...')
+            return None
         args = vars(self.args)
         args.update(combination)
         return Namespace(**args)
@@ -654,6 +669,7 @@ class DistributedAsynchronousRandomSearch:
 
             self.path = self.get_path(self.combination)
             # mark the new combination as in progress
+            cur.execute(f"DELETE FROM todo WHERE num = {self.index}")
             cur.execute(f"INSERT INTO running VALUES"
                         f"({self.index}, '{self.combination}', '{self.path}')")
             con.commit()

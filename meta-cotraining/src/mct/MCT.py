@@ -594,6 +594,7 @@ class MetaCoTrainingModel(torch.nn.Module):
         else:
             if (not self.self_loss_grads) or (self.loss_final == 0):
                 warnings.warn('attempting MCT step without self_loss_grads or zero loss_final, it looks like s was not set correctly...')
+                self.s = -1
                 return
 
             if approx:

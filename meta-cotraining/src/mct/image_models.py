@@ -38,7 +38,6 @@ from skimage import io, color
 import numpy as np
 from scipy.spatial import KDTree
 from collections import Counter
-from scipy.optimize import linprog
 
 import numpy as np
 
@@ -46,6 +45,8 @@ import torch
 import clip
 from transformers import CLIPVisionModel, SiglipVisionModel, AlignVisionModel, Blip2VisionModel, Owlv2VisionModel
 from functools import lru_cache
+
+linprog = None
 
 class VisionTransformer(timm.models.vision_transformer.VisionTransformer):
     """ Vision Transformer with support for global average pooling
@@ -1120,7 +1121,7 @@ class MAE_distance(SSL_distance):
 
         # load pre-trained model
         msg = model.load_state_dict(checkpoint_model, strict=False)
-        self.model = model
+        self.model = Heira_Wrapper(model)
         # self.model = model.to(visible_device)
 
             
@@ -1156,15 +1157,25 @@ class DINOv2_distance(SSL_distance):
         
         # self.model = model.to(visible_device)
 
+class Heira_Wrapper(torch.nn.Module):
+    def __init__(self, model):
+        super(Heira_Wrapper, self).__init__()
+        self.model = model
+
+    def forward(self, x):
+        x = self.model.forward_encoder(x, 0.0)[0].mean(1).mean(1).mean(1)
+        return x
+
+
 class Heira_distance(SSL_distance):
     """
-    DINOv2 distance
+    Heira distance
     """
     def __init__(self, model='dinov2_vitl14_reg'):
         os.environ['TORCH_HOME'] = '.'
         os.environ['TORCH_HUB'] = '.'
-        self.model = torch.hub.load("facebookresearch/hiera", model="mae_hiera_base_224", pretrained=True, checkpoint="mae_in1k")
-        
+        self.model = Heira_Wrapper(torch.hub.load("facebookresearch/hiera", model="mae_hiera_base_224", pretrained=True, checkpoint="mae_in1k"))
+
 
 class CLIP_wrapper(torch.nn.Module):
     def __init__(self):
