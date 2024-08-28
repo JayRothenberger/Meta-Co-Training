@@ -1,7 +1,5 @@
 # Meta Co Training
 
-This branch is unfinished.  Things may not work correctly or reflect the advertized functionality of performance.
-
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/meta-co-training-two-views-are-better-than/semi-supervised-image-classification-on-2)](https://paperswithcode.com/sota/semi-supervised-image-classification-on-2?p=meta-co-training-two-views-are-better-than)
 [![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/meta-co-training-two-views-are-better-than/semi-supervised-image-classification-on-1)](https://paperswithcode.com/sota/semi-supervised-image-classification-on-1?p=meta-co-training-two-views-are-better-than)
 
