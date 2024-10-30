@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --partition=ai2es_h100
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
+#SBATCH --partition=ai2es_a100
+#SBATCH --nodes=4
+#SBATCH --ntasks=4
 # Thread count:
 #SBATCH --cpus-per-task=32
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:4
 # memory in MB
 #SBATCH --mem=64G
 # The %04a is translated into a 4-digit number that encodes the SLURM_ARRAY_TASK_ID
@@ -32,7 +32,7 @@ wandb login 6ac799cb76304b17ce74f5161bc27f7a80b6ecee
 
 srun torchrun \
 --nnodes $SLURM_JOB_NUM_NODES \
---nproc_per_node 2 \
+--nproc_per_node 4 \
 --rdzv_id $RANDOM \
 --rdzv_backend c10d \
 --rdzv_endpoint "$head_node_ip:64425" \

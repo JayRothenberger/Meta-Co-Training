@@ -24,7 +24,7 @@ def training_process(args, rank, world_size):
     torch.manual_seed(13)
     torch.cuda.set_device(device)
 
-    views = ['DINOv2', 'CLIP', 'SigLIP', 'EsViT']
+    views = ['DINOv2', 'SigLIP', 'Heira', 'CLIP']
 
     view = views[int(os.environ['RANK']) % len(views)]
 
@@ -114,13 +114,13 @@ def main(args, rank, world_size):
 def create_parser():
     parser = argparse.ArgumentParser(description='MCT benchmark')
     
-    parser.add_argument('--warmup_epochs', type=int, default=45, 
+    parser.add_argument('--warmup_epochs', type=int, default=150, 
                         help='warmup epochs (default: 10)')
     parser.add_argument('--fpft_epochs', type=int, default=45, 
                         help='fpft epochs (default: 10)')
     parser.add_argument('--epochs', type=int, default=150, 
                         help='training epochs (default: 10)')
-    parser.add_argument('-b', '--batch_size', type=int, default=512, 
+    parser.add_argument('-b', '--batch_size', type=int, default=256, 
                         help='batch size for training (default: 64)')
     parser.add_argument('-p', '--patience', type=int, default=32, 
                         help='patience for training')
