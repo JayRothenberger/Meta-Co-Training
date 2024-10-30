@@ -75,7 +75,7 @@ def training_process(args, rank, world_size):
 
     models = [MLPProbe(model, shape, num_classes) for shape, model in zip(shapes, models)]
 
-    MCTModel = MetaCoTrainingModel(models)
+    MCTModel = MetaCoTrainingModel(models, accum_steps=4)
 
     # preparation stage in which the model does not alter embedder weights
     states = MCTModel.train(args.warmup_epochs, args.warmup_epochs + 1, copy(trains), copy(unlbls), copy(vals), copy(vals), checkpoint_path=f'./chkpts/{view}_chkpt', batch_size=args.batch_size, log_interval=100, amp=True)
@@ -91,7 +91,7 @@ def training_process(args, rank, world_size):
         # now the meta co-training step with the representation frozen which empirically prevents collapse
         models = [FinetunedLinearProbe(model) for model in models]
 
-    MCTModel = MetaCoTrainingModel(models)
+    MCTModel = MetaCoTrainingModel(models, accum_steps=4)
     torch.distributed.barrier()
     states = MCTModel.train(args.epochs, 0, copy(trains), copy(unlbls), copy(vals), copy(vals), checkpoint_path='no_fpft_mct_after', batch_size=args.batch_size, log_interval=100, approx=False, amp=True)
 
@@ -133,7 +133,7 @@ def create_parser():
                         help='fpft epochs (default: 10)')
     parser.add_argument('--epochs', type=int, default=20, 
                         help='training epochs (default: 10)')
-    parser.add_argument('-b', '--batch_size', type=int, default=64, 
+    parser.add_argument('-b', '--batch_size', type=int, default=128, 
                         help='batch size for training (default: 64)')
     parser.add_argument('-p', '--patience', type=int, default=32, 
                         help='patience for training')
@@ -143,9 +143,9 @@ def create_parser():
                         help='learning rate for SGD (default 1e-3)')
     parser.add_argument('--dataset', type=str, default='IN1k', metavar='e',
                         help='embeddings over which to compute the distances')
-    parser.add_argument('--path', type=str, default='/ourdisk/hpc/ai2es/jroth/AI2ES_DL_Torch/MCT/one_percent_cold_start', help='path for hparam search directory')
+    parser.add_argument('--path', type=str, default='/ourdisk/hpc/ai2es/jroth/AI2ES_DL_Torch/MCT/full_open_set', help='path for hparam search directory')
     parser.add_argument('--dataset_path', type=str, default='/ourdisk/hpc/ai2es/datasets/Imagenet/2012', help='path containing training dataset')
-    parser.add_argument('--train_size', type=float, default=[0.01],
+    parser.add_argument('--train_size', type=float, default=[1.0],
                         help='size of the training set (%)')
     parser.add_argument('--balanced', type=bool, default=False, 
                         help='Balanced dataset subsetting if true, else stratified sampling')
