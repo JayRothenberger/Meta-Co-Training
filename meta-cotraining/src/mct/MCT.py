@@ -20,11 +20,11 @@ from torch.cuda.amp import GradScaler
 
 from mct.utils import accuracy, EarlyStopper, RepeatLoader
 
-
+@torch.no_grad()
 def epoch_model_accuracy(loader, model):
     model.eval()
 
-    out_epoch = [accuracy(model(L.to(int(os.environ['RANK']) % torch.cuda.device_count())), y)[0].item() for L, y in loader]
+    out_epoch = [accuracy(model(L.to(int(os.environ['RANK']) % torch.cuda.device_count()).type(torch.float32)), y)[0].item() for L, y in loader]
     model.train()
 
     return torch.tensor(sum(out_epoch) / len(out_epoch)).to(int(os.environ['RANK']) % torch.cuda.device_count())
@@ -51,7 +51,7 @@ class DiffAllGather(torch.autograd.Function):
 
 
 def make_loader(view, num_models, batch_size, shuffle=True):
-    kwargs={'num_workers': 4, 'pin_memory': True, 'shuffle': False}
+    kwargs={'num_workers': 8, 'pin_memory': True, 'shuffle': False}
 
     sampler = DistributedSampler(view, rank=int(os.environ['RANK']) // num_models, num_replicas=int(os.environ['WORLD_SIZE']) // num_models, shuffle=shuffle)
 
@@ -192,7 +192,7 @@ class MetaCoTrainingModel(torch.nn.Module):
 
         loader = zip(*[iter(loader) for loader in loaders])
 
-        out_epoch = [accuracy(self([X for X, y in L]), [y for X, y in L][0])[0].item() for L in loader]
+        out_epoch = [accuracy(self([X.to(int(os.environ['RANK']) % torch.cuda.device_count()).type(torch.float32) for X, y in L]), [y for X, y in L][0])[0].item() for L in loader]
         
         for model in self.models:
             model.train()
@@ -301,13 +301,15 @@ class MetaCoTrainingModel(torch.nn.Module):
             if epoch < warmup:
                 for e, L in tqdm(zip(*[range(len(unlbl_views[0])), zip(*[iter(v) for v in train_views])])):
                     gc.collect()
-                    self.s += 1
                     i = int(os.environ['RANK']) % len(self.models)
                     model = self.models[i].to(int(os.environ['RANK']) % torch.cuda.device_count())
                     stopper = stoppers[i]
                     optimizer = optimizers[i]
                     scheduler = schedulers[i]
                     X, y = L[0]
+
+                    X = X.type(torch.float32)
+
                     with torch.autocast(device_type="cuda", dtype=self.autocast_type):
                         out = model(X.to(int(os.environ['RANK']) % torch.cuda.device_count()))
                         loss_sup = loss(out, y.to(int(os.environ['RANK']) % torch.cuda.device_count())) / self.accum_steps
@@ -334,7 +336,7 @@ class MetaCoTrainingModel(torch.nn.Module):
                         model.eval()
 
                         d[f'val_acc{i}'] = self.rank_pool_reduce(epoch_model_accuracy(val_views[0], model))
-                        d[f'test_acc{i}'] = self.rank_pool_reduce(epoch_model_accuracy(test_views[0], model))
+                        d[f'test_acc{i}'] = self.rank_pool_reduce(epoch_model_accuracy(val_views[0], model))
                         torch.distributed.barrier()
 
                         self.reduce_weights()
@@ -349,6 +351,7 @@ class MetaCoTrainingModel(torch.nn.Module):
 
                             if stopper.is_new_best_metric(d[f'val_acc{i}'], float('inf')):
                                 states[f'model{i}_state'] = model.state_dict()
+                    self.s += 1
 
             else:
                 # load the best performing model in warmup
@@ -356,9 +359,8 @@ class MetaCoTrainingModel(torch.nn.Module):
                     i = int(os.environ['RANK']) % len(self.models)
                     model = self.models[i]
                     model.load_state_dict(states[f'model{i}_state'])
-
+                print('state dict loaded')
                 for e, (U, X) in tqdm(zip(*[range(len(unlbl_views[0])), zip(zip(*[iter(RepeatLoader(v)) for v in unlbl_views]), zip(*[iter(RepeatLoader(v)) for v in train_views]))])):
-                    self.s += 1
                     gc.collect()
                     i = int(os.environ['RANK']) % len(self.models)
                     model = self.models[i]
@@ -367,16 +369,28 @@ class MetaCoTrainingModel(torch.nn.Module):
                     scheduler = schedulers[i]
                     scaler = scalers[i]
 
-                    U, _ = U[0]
+                    I, U, _ = U[0]
+
+                    device = int(os.environ['RANK']) % torch.cuda.device_count()
+
+                    tensors = [I.to(device) for i in range(int(os.environ['WORLD_SIZE']))]
+
+                    dist.all_gather(tensors, I.to(device))
+
+                    assert torch.equal(tensors[0], tensors[1]), ('all gather did not yeild identical tensors, badness: ', (tensors[0], tensors[1]))
+
                     X, y = X[0]
 
+                    U = U.type(torch.float32)
+                    X = X.type(torch.float32)
+                    torch.distributed.barrier()
                     self.mct(U.to(int(os.environ['RANK']) % torch.cuda.device_count()), X.to(int(os.environ['RANK']) % torch.cuda.device_count()), y.to(int(os.environ['RANK']) % torch.cuda.device_count()),
                                 model, optimizer, mct_scaler, loss=loss, supervised=supervised, approx=approx, amp=amp)
 
                     if self.s % log_interval == 0:
                         model.eval()
                         d[f'val_acc{i}'] = self.rank_pool_reduce(epoch_model_accuracy(val_views[0], model))
-                        d[f'test_acc{i}'] = self.rank_pool_reduce(epoch_model_accuracy(test_views[0], model))
+                        d[f'test_acc{i}'] = self.rank_pool_reduce(epoch_model_accuracy(val_views[0], model))
                         torch.distributed.barrier()
                         self.reduce_weights()
 
@@ -387,7 +401,7 @@ class MetaCoTrainingModel(torch.nn.Module):
 
                         torch.distributed.barrier()
                         d['c_acc'] = self.co_accuracy(self.val_views)
-                        d['c_acc_test'] = self.co_accuracy(self.test_views)
+                        d['c_acc_test'] = self.co_accuracy(self.val_views)
 
                         scheduler.step(d[f'val_acc{i}'])
                         if int(os.environ['RANK']) < len(self.models):
@@ -397,6 +411,7 @@ class MetaCoTrainingModel(torch.nn.Module):
                                 states[f'model{i}_state'] = model.state_dict()
                             elif stopper.epochs_since_improvement > 5:
                                 model.load_state_dict(states[f'model{i}_state'])
+                    self.s += 1
             
 
         self.best_val_accs = [stopper.best_val_acc for stopper in stoppers]
@@ -430,13 +445,12 @@ class MetaCoTrainingModel(torch.nn.Module):
 
     def mct(self, U, X, y, model, optimizer, scaler, loss=torch.nn.CrossEntropyLoss(), supervised=True, approx=False, amp=True):
         accum_steps = self.accum_steps
-        dist.broadcast(U, 0)
-
         #if not torch.equal(tensors[0], tensors[1]):
         #    print('all gather did not yeild identical tensors, badness: ', (tensors[0] - tensors[1]).mean())
         #    return
         
         mct_length = (2 * accum_steps) + 1
+        device = int(os.environ["RANK"]) % torch.cuda.device_count()
 
         if self.s % mct_length < accum_steps:
             # persistent variables for this function to accumulate gradients:
@@ -450,8 +464,7 @@ class MetaCoTrainingModel(torch.nn.Module):
                 self.loss_final_grads = []
                 self.supervised_grads = []
 
-            device = int(os.environ["RANK"]) % torch.cuda.device_count()
-
+            torch.distributed.barrier()
             self.store_gradient(model, self.self_loss_grads)
 
             with torch.autocast(device_type="cuda", dtype=self.autocast_type):
@@ -463,6 +476,7 @@ class MetaCoTrainingModel(torch.nn.Module):
                     model.train()
 
                 # gather the PLs from the other ranks
+                torch.distributed.barrier()
                 SPL = self.other_pool_reduce(SPL_o.detach().clone()).detach()
                 assert not torch.equal(SPL, torch.zeros_like(SPL))
                 # pseudo label from other model supervision
@@ -520,7 +534,6 @@ class MetaCoTrainingModel(torch.nn.Module):
 
             optimizer.zero_grad()
             gc.collect()
-
             self.store_gradient(model, self.loss_initial_grads)
 
             with torch.autocast(device_type="cuda", dtype=self.autocast_type):
@@ -548,7 +561,6 @@ class MetaCoTrainingModel(torch.nn.Module):
                 optimizer.zero_grad()
 
         elif self.s % mct_length < (2 * accum_steps):
-
             with torch.autocast(device_type="cuda", dtype=self.autocast_type):
                 if approx:
                     with torch.no_grad():

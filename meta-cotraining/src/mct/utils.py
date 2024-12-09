@@ -543,3 +543,34 @@ def setup(rank, world_size):
 
 def cleanup():
     dist.destroy_process_group()
+
+
+class IndexedDataset:
+    def __init__(self, ds):
+        self.ds = ds
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+
+    def __len__(self):
+        return len(self.ds)
+    
+    def __getitem__(self, i):
+        return (torch.tensor(i), *self.ds[i])
+    
+
+class ConcatDataset:
+    def __init__(self, ds1, ds2):
+        self.ds1 = ds1
+        self.ds2 = ds2
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
+
+    def __len__(self):
+        return len(self.ds)
+    
+    def __getitem__(self, i):
+        return torch.cat((self.ds1[i][0], self.ds2[i][0]), -1), self.ds1[i][1]
