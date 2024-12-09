@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --partition=ai2es_h100
+#SBATCH --partition=disc
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 # Thread count:
 #SBATCH --cpus-per-task=32
 #SBATCH --gres=gpu:2
 # memory in MB
-#SBATCH --mem=64G
+#SBATCH --mem=500G
 # The %04a is translated into a 4-digit number that encodes the SLURM_ARRAY_TASK_ID
 #SBATCH --output=/ourdisk/hpc/ai2es/jroth/Meta-Co-Training/slurm/mct_out_%a.txt
 #SBATCH --error=/ourdisk/hpc/ai2es/jroth/Meta-Co-Training/slurm/mct_err_%a.txt
@@ -15,7 +15,7 @@
 #SBATCH --mail-user=jay.c.rothenberger@ou.edu
 #SBATCH --mail-type=ALL
 #SBATCH --chdir=/ourdisk/hpc/ai2es/jroth/Meta-Co-Training/examples
-#SBATCH --array=[0-0]%4
+#SBATCH --array=[0-31]%4
 #################################################
 
 nodes=( $( scontrol show hostnames $SLURM_JOB_NODELIST ) )
