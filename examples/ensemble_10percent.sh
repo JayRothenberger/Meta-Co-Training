@@ -1,17 +1,17 @@
 #!/bin/bash
-#SBATCH --partition=disc
+#SBATCH --partition=ai2es
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 # Thread count:
 #SBATCH --cpus-per-task=32
 #SBATCH --gres=gpu:2
 # memory in MB
-#SBATCH --mem=500G
+#SBATCH --mem=100G
 # The %04a is translated into a 4-digit number that encodes the SLURM_ARRAY_TASK_ID
-#SBATCH --output=/ourdisk/hpc/ai2es/jroth/Meta-Co-Training/slurm/mct_out_%a.txt
-#SBATCH --error=/ourdisk/hpc/ai2es/jroth/Meta-Co-Training/slurm/mct_err_%a.txt
+#SBATCH --output=/ourdisk/hpc/ai2es/jroth/Meta-Co-Training/slurm/10percent_out_%a.txt
+#SBATCH --error=/ourdisk/hpc/ai2es/jroth/Meta-Co-Training/slurm/10percent_err_%a.txt
 #SBATCH --time=12:00:00
-#SBATCH --job-name=mct
+#SBATCH --job-name=10percent
 #SBATCH --mail-user=jay.c.rothenberger@ou.edu
 #SBATCH --mail-type=ALL
 #SBATCH --chdir=/ourdisk/hpc/ai2es/jroth/Meta-Co-Training/examples
@@ -36,4 +36,4 @@ srun torchrun \
 --rdzv_id $RANDOM \
 --rdzv_backend c10d \
 --rdzv_endpoint "$head_node_ip:64425" \
-MCT_open_set.py
+ensemble_10percent.py

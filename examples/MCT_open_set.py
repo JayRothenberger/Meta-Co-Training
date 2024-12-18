@@ -16,7 +16,7 @@ from mct.dahps import DistributedAsynchronousRandomSearch, sync_parameters
 from mct.MCT import MetaCoTrainingModel
 from mct.image_models import IMAGE_DISTANCES, IMAGE_TRANSFORMS
 from mct.models import FPFT, FinetunedLinearProbe, MLPProbe, FCNN
-from mct.utils import subset_npercent_dataset, IndexedDataset
+from mct.utils import subset_npercent, IndexedDataset
 
 
 def training_process(args, rank, world_size):
@@ -59,14 +59,11 @@ def training_process(args, rank, world_size):
 
         x_unlbls, y_unlbls = [], []
 
-        x_unlbl = torch.cat(x_unlbls)
-        y_unlbl = torch.cat(y_unlbls)
-
         train = torch.utils.data.TensorDataset(torch.tensor(x_train).type(torch.float16), torch.tensor(y_train))
         val = torch.utils.data.TensorDataset(torch.tensor(x_val).type(torch.float16), torch.tensor(y_val))
 
         if args.train_size < 1.0:
-            train, unlbl = subset_npercent_dataset(train, percent=args.train_size * 100)
+            x_train, y_train, x_unlbl, y_unlbl, x_val, y_val = subset_npercent((x_train, y_train, x_val, y_val), percent=args.train_size * 100)
         else:
             for shard in tqdm(sorted(shards)[:25]):
                 with open(os.path.join(shardpath, shard), 'rb') as fp:
@@ -74,7 +71,10 @@ def training_process(args, rank, world_size):
                     x_unlbls.append(torch.tensor(x_unlbl).type(torch.float16))
                     y_unlbls.append(torch.tensor(y_unlbl))
 
-            unlbl = IndexedDataset(torch.utils.data.TensorDataset(x_unlbl, y_unlbl))
+            x_unlbl = torch.cat(x_unlbls)
+            y_unlbl = torch.cat(y_unlbls)
+
+        unlbl = IndexedDataset(torch.utils.data.TensorDataset(x_unlbl, y_unlbl))
 
         trains.append(train)
         unlbls.append(unlbl)
@@ -145,9 +145,9 @@ def create_parser():
                         help='learning rate for SGD (default 1e-3)')
     parser.add_argument('--dataset', type=str, default='IN1k', metavar='e',
                         help='embeddings over which to compute the distances')
-    parser.add_argument('--path', type=str, default='/ourdisk/hpc/ai2es/jroth/AI2ES_DL_Torch/MCT/open_set_hp2', help='path for hparam search directory')
+    parser.add_argument('--path', type=str, default='/ourdisk/hpc/ai2es/jroth/AI2ES_DL_Torch/MCT/open_set_hp3', help='path for hparam search directory')
     parser.add_argument('--dataset_path', type=str, default='/ourdisk/hpc/ai2es/datasets/Imagenet/2012', help='path containing training dataset')
-    parser.add_argument('--train_size', type=float, default=[1.0],
+    parser.add_argument('--train_size', type=float, default=[0.1],
                         help='size of the training set (%)')
     parser.add_argument('--balanced', type=bool, default=False, 
                         help='Balanced dataset subsetting if true, else stratified sampling')
