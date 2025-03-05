@@ -561,16 +561,16 @@ class IndexedDataset:
     
 
 class ConcatDataset:
-    def __init__(self, ds1, ds2):
-        self.ds1 = ds1
-        self.ds2 = ds2
+    def __init__(self, dss):
+        assert len(dss) > 0, 'length of dataset list must be greater than zero'
+        self.dss = dss
 
     def __iter__(self):
         for i in range(len(self)):
             yield self[i]
 
     def __len__(self):
-        return len(self.ds)
+        return len(self.dss[0])
     
     def __getitem__(self, i):
-        return torch.cat((self.ds1[i][0], self.ds2[i][0]), -1), self.ds1[i][1]
+        return torch.cat([self.dss[j][i][0] for j in range(len(self.dss))], -1), self.dss[0][i][1]
